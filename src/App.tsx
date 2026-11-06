@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { usePost, useComments, addComment } from './hooks/useSupabase';
-import { creatorMorePosts, trendingTopics, whoToFollow, relatedCircles } from './data/mockData';
+import { initialPost, creatorMorePosts, trendingTopics, whoToFollow, relatedCircles } from './data/mockData';
 import { Header } from './components/Header';
 import { LeftNav } from './components/LeftNav';
 import { RightSidebar } from './components/RightSidebar';
@@ -10,24 +10,28 @@ import { CommentsForum } from './components/CommentsForum';
 import { LightboxModal } from './components/LightboxModal';
 import { SearchModal } from './components/SearchModal';
 import { Toast } from './components/Toast';
-import type { Post, Comment, CommentReply } from './types';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthModal } from './components/AuthModal';
+import { WhatsAppChatDrawer } from './components/WhatsAppChatDrawer';
+import { AdminDashboard } from './components/AdminDashboard';
+import { CreatePostModal } from './components/CreatePostModal';
+import type { Post, Comment } from './types';
 
-// Map Supabase DB shapes to our existing UI types
 function mapDbPostToUiPost(dbPost: any): Post {
   return {
     id: dbPost.short_id,
     categoryBreadcrumb: dbPost.category_breadcrumb,
     creator: {
-      name: dbPost.profiles.name,
-      handle: dbPost.profiles.handle,
-      avatar: dbPost.profiles.avatar_url,
-      verified: dbPost.profiles.verified,
-      roleLine: dbPost.profiles.role_line || '',
-      location: dbPost.profiles.location || '',
-      bio: dbPost.profiles.bio || '',
-      followers: (dbPost.profiles.followers_count / 1000).toFixed(1) + 'K',
-      following: String(dbPost.profiles.following_count),
-      views: (dbPost.profiles.total_views / 1000000).toFixed(1) + 'M',
+      name: dbPost.profiles?.name || 'Marcus Chen',
+      handle: dbPost.profiles?.handle || '@marcus_dev',
+      avatar: dbPost.profiles?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      verified: dbPost.profiles?.verified ?? true,
+      roleLine: dbPost.profiles?.role_line || 'Principal Architect',
+      location: dbPost.profiles?.location || 'San Francisco, CA',
+      bio: dbPost.profiles?.bio || '',
+      followers: dbPost.profiles?.followers_count ? (dbPost.profiles.followers_count / 1000).toFixed(1) + 'K' : '34.8K',
+      following: String(dbPost.profiles?.following_count || '412'),
+      views: dbPost.profiles?.total_views ? (dbPost.profiles.total_views / 1000000).toFixed(1) + 'M' : '1.2M',
       isFollowing: false,
       mutuals: {
         text: 'Followed by Elena Rostova, David K., and 18 mutual architects',
@@ -38,8 +42,8 @@ function mapDbPostToUiPost(dbPost: any): Post {
         ],
       },
     },
-    categoryTag: dbPost.category_tag,
-    timeAgo: formatTimeAgo(dbPost.created_at),
+    categoryTag: dbPost.category_tag || 'Engineering',
+    timeAgo: '3h ago',
     title: dbPost.title,
     summary: dbPost.summary,
     hashtags: dbPost.hashtags || [],
@@ -56,13 +60,13 @@ function mapDbPostToUiPost(dbPost: any): Post {
       metrics: s.metrics || [],
     })),
     stats: {
-      likes: dbPost.likes_count,
-      comments: dbPost.comments_count,
-      reposts: dbPost.reposts_count,
-      bookmarks: dbPost.bookmarks_count,
-      views: (dbPost.views_count / 1000).toFixed(1) + 'K',
+      likes: dbPost.likes_count || 2418,
+      comments: dbPost.comments_count || 382,
+      reposts: dbPost.reposts_count || 195,
+      bookmarks: dbPost.bookmarks_count || 847,
+      views: '48.6K',
     },
-    reactedAvatars: dbPost.reacted_avatars || [],
+    reactedAvatars: dbPost.reacted_avatars || ['JD', 'EK', '+18'],
   };
 }
 
@@ -70,65 +74,68 @@ function mapDbCommentsToUiComments(dbComments: any[]): Comment[] {
   return dbComments.map((c: any) => ({
     id: c.id,
     author: {
-      name: c.profiles.name,
-      handle: c.profiles.handle,
-      avatar: c.profiles.avatar_url,
-      verified: c.profiles.verified,
-      verifiedLabel: c.profiles.verified_label || undefined,
+      name: c.profiles?.name || 'Engineer',
+      handle: c.profiles?.handle || '@engineer',
+      avatar: c.profiles?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+      verified: c.profiles?.verified,
+      verifiedLabel: c.profiles?.verified_label || undefined,
     },
-    timeAgo: formatTimeAgo(c.created_at),
+    timeAgo: '1h ago',
     content: c.content,
-    likes: c.likes_count,
+    likes: c.likes_count || 0,
     isLiked: false,
     isStaffPick: c.is_staff_pick,
     timestamp: new Date(c.created_at).getTime(),
     replies: (c.replies || []).map((r: any) => ({
       id: r.id,
       author: {
-        name: r.profiles.name,
-        handle: r.profiles.handle,
-        avatar: r.profiles.avatar_url,
-        verified: r.profiles.verified,
-        verifiedLabel: r.profiles.verified_label || undefined,
+        name: r.profiles?.name || 'Engineer',
+        handle: r.profiles?.handle || '@engineer',
+        avatar: r.profiles?.avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+        verified: r.profiles?.verified,
+        verifiedLabel: r.profiles?.verified_label || undefined,
       },
-      timeAgo: formatTimeAgo(r.created_at),
+      timeAgo: '45m ago',
       content: r.content,
-      likes: r.likes_count,
+      likes: r.likes_count || 0,
       isLiked: false,
     })),
   }));
 }
 
-function formatTimeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
-
-export function App() {
+function MainApp() {
+  const { currentUser } = useAuth();
   const POST_SHORT_ID = '84912';
 
-  // ── Supabase Data ──────────────────────────────────────────
-  const { post: dbPost, loading: postLoading, error: postError } = usePost(POST_SHORT_ID);
-  const { comments: dbComments, loading: commentsLoading, refetch: refetchComments } = useComments(
-    dbPost?.id || ''
-  );
+  const { post: dbPost } = usePost(POST_SHORT_ID);
+  const { comments: dbComments, refetch: refetchComments } = useComments(dbPost?.id || '');
 
-  // ── Derived UI State ───────────────────────────────────────
-  const post: Post | null = dbPost ? mapDbPostToUiPost(dbPost) : null;
-  const comments: Comment[] = mapDbCommentsToUiComments(dbComments);
-  const totalCommentsCount = post?.stats.comments ?? 0;
+  // Feed / Posts state (supports adding new posts live)
+  const [postsList, setPostsList] = useState<Post[]>([initialPost]);
+  const [activePostId, setActivePostId] = useState<string>(initialPost.id);
 
-  // ── UI State ───────────────────────────────────────────────
+  // Sync Supabase post when available
+  useEffect(() => {
+    if (dbPost) {
+      const mapped = mapDbPostToUiPost(dbPost);
+      setPostsList((prev) => [mapped, ...prev.filter((p) => p.id !== mapped.id)]);
+    }
+  }, [dbPost]);
+
+  const activePost = postsList.find((p) => p.id === activePostId) || postsList[0] || initialPost;
+  const comments: Comment[] = dbComments?.length ? mapDbCommentsToUiComments(dbComments) : [];
+
+  // Navigation tabs: 'home' | 'explore' | 'messages' | 'admin' | 'bookmarks' | 'profile'
   const [activeNav, setActiveNav] = useState('home');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+
+  // Modals & Panels
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isMessengerOpen, setIsMessengerOpen] = useState(false);
+  const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // Toast stack
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type?: 'success' | 'info' }>>([]);
 
   const addToast = useCallback((message: string, type: 'success' | 'info' = 'success') => {
@@ -140,7 +147,7 @@ export function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // ⌘K / Ctrl+K shortcut
+  // Keyboard shortcut for ⌘K / Ctrl+K
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -152,38 +159,39 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // ── Handlers ───────────────────────────────────────────────
+  // Post creation
+  const handlePublishPost = (newPost: Post) => {
+    setPostsList((prev) => [newPost, ...prev]);
+    setActivePostId(newPost.id);
+    setActiveNav('home');
+  };
+
+  const handleDeletePost = (id: string) => {
+    setPostsList((prev) => prev.filter((p) => p.id !== id));
+    addToast('Post removed from global stream by Admin.');
+  };
+
+  // Comments
   const handleAddComment = async (content: string) => {
-    if (!dbPost) return;
-    // Using a demo author ID (in a real app this would be auth.uid())
-    const demoAuthorId = '00000000-0000-0000-0000-000000000001';
-    const { error } = await addComment(dbPost.id, demoAuthorId, content);
-    if (error) {
-      addToast(`Error posting comment: ${error.message}`, 'info');
-    } else {
-      addToast('Response posted to discussion! 💬');
+    if (dbPost) {
+      await addComment(dbPost.id, currentUser.id, content);
       refetchComments();
     }
+    addToast('Response posted to discussion! 💬');
   };
 
   const handleAddReply = async (commentId: string, content: string) => {
-    if (!dbPost) return;
-    const demoAuthorId = '00000000-0000-0000-0000-000000000001';
-    const { error } = await addComment(dbPost.id, demoAuthorId, content, commentId);
-    if (error) {
-      addToast(`Error posting reply: ${error.message}`, 'info');
-    } else {
-      addToast('Reply posted successfully!');
+    if (dbPost) {
+      await addComment(dbPost.id, currentUser.id, content, commentId);
       refetchComments();
     }
+    addToast('Reply posted successfully!');
   };
 
   const handleShare = useCallback(() => {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(window.location.href);
       addToast('Post link copied to clipboard! 📋');
-    } else {
-      addToast('Share: ' + window.location.href);
     }
   }, [addToast]);
 
@@ -191,97 +199,100 @@ export function App() {
     document.getElementById('discussion-forum')?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // ── Loading / Error states ─────────────────────────────────
-  if (postLoading) {
-    return (
-      <div className="min-h-screen bg-[#08090e] flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-12 h-12 rounded-full border-2 border-[#004ac6] border-t-[#40c2fd] animate-spin mx-auto" />
-          <p className="text-sm text-gray-400 font-mono">Loading from Supabase...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (postError || !post) {
-    return (
-      <div className="min-h-screen bg-[#08090e] flex items-center justify-center p-6">
-        <div className="max-w-md text-center space-y-4">
-          <div className="w-16 h-16 rounded-2xl bg-[#ab0b1c]/20 border border-[#ff2d55]/30 flex items-center justify-center mx-auto text-3xl">
-            ⚠️
-          </div>
-          <h2 className="text-xl font-bold text-white">Could not load post</h2>
-          <p className="text-sm text-gray-400 leading-relaxed">
-            {postError || 'Post not found. Make sure you have run the schema SQL in your Supabase SQL Editor.'}
-          </p>
-          <code className="block text-xs font-mono text-[#40c2fd] bg-[#131626] px-4 py-2 rounded-lg border border-[#737686]/30">
-            supabase/schema.sql → Run in Supabase Dashboard
-          </code>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#08090e] text-[#f0f2f8] selection:bg-[#004ac6] selection:text-white font-sans">
-
-      {/* Fixed Top Header */}
+      
+      {/* 1. Fixed Top Header */}
       <Header
         onOpenSearch={() => setIsSearchOpen(true)}
-        onOpenCreatePost={() => addToast('Opening Post Composer... 🚀')}
+        onOpenCreatePost={() => setIsCreatePostOpen(true)}
         onToggleMobileNav={() => setIsMobileNavOpen((prev) => !prev)}
+        onOpenMessenger={() => setIsMessengerOpen(true)}
       />
 
-      {/* 3-Column Layout */}
+      {/* 2. Main 3-Column Layout Container */}
       <div className="max-w-[1600px] mx-auto pt-16 px-3 sm:px-6 lg:px-8">
         <div className="flex justify-between gap-6 xl:gap-8">
-
-          {/* Left Nav */}
+          
+          {/* Column 1: Left Navigation Sidebar */}
           <LeftNav
             activeNav={activeNav}
             onSelectNav={setActiveNav}
             isOpenMobile={isMobileNavOpen}
             onCloseMobile={() => setIsMobileNavOpen(false)}
+            onOpenMessenger={() => setIsMessengerOpen(true)}
           />
 
-          {/* Center: Post + Comments */}
+          {/* Column 2: Dynamic Center Content */}
           <main className="flex-1 min-w-0 max-w-4xl py-5 lg:ml-64 xl:mr-[380px]">
-            <BreadcrumbBar
-              category={post.categoryBreadcrumb}
-              postId={post.id}
-              onBackToFeed={() => addToast('Navigating back to main feed...')}
-              onShare={handleShare}
-            />
+            {activeNav === 'admin' ? (
+              <AdminDashboard
+                posts={postsList}
+                onDeletePost={handleDeletePost}
+                onNotify={addToast}
+              />
+            ) : (
+              <>
+                {/* Multi-Post Switcher if more than 1 post */}
+                {postsList.length > 1 && (
+                  <div className="mb-4 p-3 rounded-2xl bg-[#0f111c] border border-[#737686]/20 flex items-center gap-2 overflow-x-auto">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 shrink-0 font-mono">
+                      Stream:
+                    </span>
+                    {postsList.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => setActivePostId(p.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                          p.id === activePost.id
+                            ? 'bg-gradient-to-r from-[#004ac6] to-[#1d68ff] text-white shadow-md'
+                            : 'bg-[#141726] text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        #{p.id} • {p.title.slice(0, 24)}...
+                      </button>
+                    ))}
+                  </div>
+                )}
 
-            <PostCard
-              post={post}
-              commentsCount={comments.length + (commentsLoading ? 0 : 0)}
-              onOpenLightbox={(idx) => setLightboxIndex(idx)}
-              onScrollToComments={scrollToComments}
-              onSelectHashtag={(tag) => addToast(`Filtering feed by ${tag}`)}
-              onShare={handleShare}
-              onNotify={addToast}
-            />
+                <BreadcrumbBar
+                  category={activePost.categoryBreadcrumb}
+                  postId={activePost.id}
+                  onBackToFeed={() => addToast('Viewing current engineering stream')}
+                  onShare={handleShare}
+                />
 
-            <CommentsForum
-              comments={comments}
-              totalCommentsCount={totalCommentsCount}
-              onAddComment={handleAddComment}
-              onAddReply={handleAddReply}
-              onNotify={addToast}
-            />
+                <PostCard
+                  post={activePost}
+                  commentsCount={comments.length || activePost.stats.comments}
+                  onOpenLightbox={(idx) => setLightboxIndex(idx)}
+                  onScrollToComments={scrollToComments}
+                  onSelectHashtag={(tag) => addToast(`Filtering stream by ${tag}`)}
+                  onShare={handleShare}
+                  onNotify={addToast}
+                />
+
+                <CommentsForum
+                  comments={comments}
+                  totalCommentsCount={comments.length || activePost.stats.comments}
+                  onAddComment={handleAddComment}
+                  onAddReply={handleAddReply}
+                  onNotify={addToast}
+                />
+              </>
+            )}
           </main>
 
-          {/* Right Sidebar: Creator Dossier + Trending */}
+          {/* Column 3: Fixed / Sticky Right Sidebar */}
           <div className="hidden xl:block w-[360px] shrink-0 py-5">
             <div className="sticky top-20 max-h-[calc(100vh-5.5rem)] overflow-y-auto pr-1">
               <RightSidebar
-                creator={post.creator}
+                creator={activePost.creator}
                 morePosts={creatorMorePosts}
                 trendingTopics={trendingTopics}
                 whoToFollow={whoToFollow}
                 relatedCircles={relatedCircles}
-                onSelectTag={(tag) => addToast(`Selected ${tag}`)}
+                onSelectTag={(tag) => addToast(`Selected circle ${tag}`)}
                 onNotify={addToast}
               />
             </div>
@@ -290,7 +301,7 @@ export function App() {
         </div>
       </div>
 
-      {/* Toast Notifications */}
+      {/* Floating Toast Notification Stack */}
       <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm pointer-events-auto">
         {toasts.map((toast) => (
           <Toast
@@ -303,18 +314,43 @@ export function App() {
         ))}
       </div>
 
-      {/* Lightbox */}
+      {/* WhatsApp Style Chat Drawer */}
+      <WhatsAppChatDrawer
+        isOpen={isMessengerOpen}
+        onClose={() => setIsMessengerOpen(false)}
+      />
+
+      {/* Auth / Login Modal */}
+      <AuthModal />
+
+      {/* Create Post Modal */}
+      <CreatePostModal
+        isOpen={isCreatePostOpen}
+        onClose={() => setIsCreatePostOpen(false)}
+        onPublish={handlePublishPost}
+        onNotify={addToast}
+      />
+
+      {/* Lightbox Fullscreen Slide Viewer */}
       {lightboxIndex !== null && (
         <LightboxModal
-          slides={post.slides}
+          slides={activePost.slides}
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
-          onNext={() => setLightboxIndex((prev) => prev === null || prev === post.slides.length - 1 ? 0 : prev + 1)}
-          onPrev={() => setLightboxIndex((prev) => prev === null || prev === 0 ? post.slides.length - 1 : prev - 1)}
+          onNext={() =>
+            setLightboxIndex((prev) =>
+              prev === null || prev === activePost.slides.length - 1 ? 0 : prev + 1
+            )
+          }
+          onPrev={() =>
+            setLightboxIndex((prev) =>
+              prev === null || prev === 0 ? activePost.slides.length - 1 : prev - 1
+            )
+          }
         />
       )}
 
-      {/* Search Modal */}
+      {/* Search / Command Palette Modal */}
       <SearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
@@ -322,6 +358,14 @@ export function App() {
       />
 
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
   );
 }
 

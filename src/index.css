@@ -36,13 +36,16 @@
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: rgba(8, 9, 14, 0.6);
 }
+
 ::-webkit-scrollbar-thumb {
   background: rgba(115, 118, 134, 0.35);
   border-radius: 9999px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(64, 194, 253, 0.5);
 }

@@ -1,17 +1,22 @@
 import React from 'react';
-import { Search, Plus, Bell, Command, Menu, Sparkles, Layers } from 'lucide-react';
+import { Search, Plus, Bell, Command, Menu, Sparkles, Layers, MessageSquare, Shield, LogIn } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface HeaderProps {
   onOpenSearch: () => void;
   onOpenCreatePost: () => void;
   onToggleMobileNav: () => void;
+  onOpenMessenger: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onOpenSearch,
   onOpenCreatePost,
   onToggleMobileNav,
+  onOpenMessenger,
 }) => {
+  const { currentUser, openLoginModal } = useAuth();
+
   return (
     <header className="fixed top-0 left-0 right-0 z-40 h-16 bg-[#090a10]/90 backdrop-blur-xl border-b border-[#737686]/20">
       <div className="max-w-[1600px] mx-auto h-full px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
@@ -35,7 +40,7 @@ export const Header: React.FC<HeaderProps> = ({
                 SENGON
               </span>
               <span className="text-[10px] uppercase font-semibold tracking-wider text-[#40c2fd]/90 -mt-1 flex items-center gap-1">
-                <Sparkles className="w-2.5 h-2.5" /> AntiGravity
+                <Sparkles className="w-2.5 h-2.5" /> Social Core
               </span>
             </div>
           </a>
@@ -51,7 +56,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center gap-2.5">
               <Search className="w-4 h-4 text-gray-400 group-hover:text-[#40c2fd] transition-colors" />
               <span className="text-xs sm:text-sm font-normal text-gray-400">
-                Search discussions, architecture, creators...
+                Search discussions, architecture, messages...
               </span>
             </div>
             <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#1d202d] border border-[#737686]/40 text-[11px] font-mono font-medium text-gray-300">
@@ -62,18 +67,21 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right: Actions & User Avatar */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          {/* Quick Chat Button (WhatsApp Style trigger) */}
           <button
-            onClick={onOpenSearch}
-            className="sm:hidden p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/5 transition-colors"
-            aria-label="Search"
+            onClick={onOpenMessenger}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#121524] hover:bg-[#1a1f34] border border-[#737686]/30 hover:border-[#40c2fd]/50 text-gray-200 text-xs font-semibold transition-all shadow-sm"
+            title="Open WhatsApp Chat"
           >
-            <Search className="w-5 h-5" />
+            <MessageSquare className="w-4 h-4 text-[#40c2fd]" />
+            <span className="hidden md:inline">Chats</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           </button>
 
           <button
             onClick={onOpenCreatePost}
-            className="flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-[#004ac6] to-[#1d68ff] hover:from-[#1d68ff] hover:to-[#40c2fd] text-white text-xs sm:text-sm font-semibold shadow-lg shadow-[#004ac6]/25 hover:shadow-[#1d68ff]/40 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200"
+            className="flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full bg-gradient-to-r from-[#004ac6] to-[#1d68ff] hover:from-[#1d68ff] hover:to-[#40c2fd] text-white text-xs sm:text-sm font-semibold shadow-lg shadow-[#004ac6]/25 hover:shadow-[#1d68ff]/40 transition-all duration-200"
           >
             <Plus className="w-4 h-4" />
             <span className="hidden xs:inline">Create Post</span>
@@ -83,20 +91,28 @@ export const Header: React.FC<HeaderProps> = ({
             className="relative p-2 text-gray-400 hover:text-white rounded-full hover:bg-[#181b27] border border-transparent hover:border-[#737686]/30 transition-all"
             aria-label="Notifications"
           >
-            <Bell className="w-5 h-5" />
+            <Bell className="w-4 h-4" />
             <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#40c2fd] ring-2 ring-[#090a10] animate-pulse" />
           </button>
 
-          <div className="flex items-center gap-2 pl-1 border-l border-[#737686]/30">
-            <button className="relative group rounded-full p-0.5 ring-2 ring-[#1d68ff]/40 hover:ring-[#40c2fd] transition-all">
+          {/* User Avatar with Profile Switcher trigger */}
+          <button
+            onClick={openLoginModal}
+            className="flex items-center gap-2 p-1 rounded-full hover:bg-white/5 border border-transparent hover:border-[#737686]/30 transition-all pl-1.5"
+            title="Switch User / Login"
+          >
+            <div className="relative">
               <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
-                alt="Your Profile"
-                className="w-8 h-8 rounded-full object-cover"
+                src={currentUser.avatar}
+                alt={currentUser.name}
+                className="w-8 h-8 rounded-full object-cover ring-2 ring-[#1d68ff]/40"
               />
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-[#090a10]" />
-            </button>
-          </div>
+              <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-[#090a10]" />
+            </div>
+            <span className="hidden xl:inline text-xs font-semibold text-gray-300 max-w-[90px] truncate">
+              {currentUser.name.split(' ')[0]}
+            </span>
+          </button>
         </div>
 
       </div>
