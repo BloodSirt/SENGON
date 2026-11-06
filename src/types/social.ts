@@ -40,3 +40,4 @@ export interface AdminStats {
   serverUptime: string;
   systemLoad: string;
 }
+

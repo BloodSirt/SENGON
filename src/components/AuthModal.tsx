@@ -154,3 +154,4 @@ export const AuthModal: React.FC = () => {
     </div>
   );
 };
+
