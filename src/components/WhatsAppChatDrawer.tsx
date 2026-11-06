@@ -108,53 +108,153 @@ export const WhatsAppChatDrawer: React.FC<WhatsAppChatDrawerProps> = ({ isOpen, 
     }
   }, []);
 
-  // Supabase Realtime subscription for true live message synchronization between both devices
+  // Supabase Realtime + Database synchronization for true, reliable live chat
   useEffect(() => {
     if (!activeConvId) return;
 
-    // Use a shared channel reference so broadcast works reliably across peers
+    const SENGON_SHARED_POST_ID = 'bbbbbbbb-0000-0000-0000-000000000002';
+    const SENGON_SENDER_AUTHOR_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+    // 1. Load any existing history for this room from Supabase database
+    const loadRoomHistory = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('comments')
+          .select('id, content, created_at')
+          .eq('post_id', SENGON_SHARED_POST_ID)
+          .ilike('content', `{"_sengon_chat":true,"roomId":"${activeConvId}"%`)
+          .order('created_at', { ascending: true });
+
+        if (error || !data) return;
+
+        const dbMsgs: DirectMessage[] = [];
+        data.forEach((row) => {
+          try {
+            const parsed = JSON.parse(row.content);
+            if (parsed._sengon_chat && parsed.roomId === activeConvId) {
+              dbMsgs.push({
+                id: parsed.msgId || row.id,
+                senderId: parsed.senderId,
+                senderName: parsed.senderName,
+                senderAvatar: parsed.senderAvatar || '',
+                text: parsed.text,
+                timestamp: parsed.timestamp || new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                isSelf: parsed.senderId === currentUser.id,
+                status: 'read'
+              });
+            }
+          } catch (e) {
+            // ignore non-json
+          }
+        });
+
+        if (dbMsgs.length > 0) {
+          setConversations((prev) =>
+            prev.map((c) => {
+              if (c.id === activeConvId) {
+                // Merge without duplicating existing IDs
+                const existingIds = new Set(c.messages.map((m) => m.id));
+                const newOnly = dbMsgs.filter((m) => !existingIds.has(m.id));
+                const merged = [...c.messages, ...newOnly];
+                const last = merged[merged.length - 1];
+                return {
+                  ...c,
+                  lastMessage: last ? last.text : c.lastMessage,
+                  lastMessageTime: last ? last.timestamp : c.lastMessageTime,
+                  messages: merged
+                };
+              }
+              return c;
+            })
+          );
+        }
+      } catch (err) {
+        console.error('Error loading room history:', err);
+      }
+    };
+
+    loadRoomHistory();
+
+    // 2. Realtime WebSocket subscription: Listen for both Postgres database INSERTs AND direct broadcast
     const channelName = `room_${activeConvId.replace(/[^a-zA-Z0-9_]/g, '_')}`;
     const channel = supabase.channel(channelName, {
-      config: { broadcast: { self: false } }
+      config: { broadcast: { ack: true } }
     });
 
-    channel
-      .on('broadcast', { event: 'new_message' }, ({ payload }) => {
-        if (!payload || !payload.text) return;
+    // Handle incoming message function
+    const handleIncoming = (incoming: {
+      id?: string;
+      senderId: string;
+      senderName: string;
+      senderAvatar?: string;
+      text: string;
+      timestamp?: string;
+    }) => {
+      if (!incoming.text || incoming.senderId === currentUser.id) return;
 
-        const incomingMsg: DirectMessage = {
-          id: payload.id || `msg-${Date.now()}-${Math.random()}`,
-          senderId: payload.senderId,
-          senderName: payload.senderName,
-          senderAvatar: payload.senderAvatar,
-          text: payload.text,
-          timestamp: payload.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isSelf: false, // Arriving from peer friend!
-          status: 'delivered'
-        };
+      const incomingMsg: DirectMessage = {
+        id: incoming.id || `msg-${Date.now()}-${Math.random()}`,
+        senderId: incoming.senderId,
+        senderName: incoming.senderName,
+        senderAvatar: incoming.senderAvatar || '',
+        text: incoming.text,
+        timestamp: incoming.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isSelf: false, // Sent by peer friend!
+        status: 'delivered'
+      };
 
-        setConversations((prev) =>
-          prev.map((c) => {
-            if (c.id === activeConvId) {
-              return {
-                ...c,
-                lastMessage: incomingMsg.text,
-                lastMessageTime: incomingMsg.timestamp,
-                messages: [...c.messages, incomingMsg]
-              };
-            }
-            return c;
-          })
-        );
-      })
-      .subscribe((status) => {
-        console.log(`Supabase Realtime Channel [${channelName}] status:`, status);
-      });
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === activeConvId) {
+            if (c.messages.some((m) => m.id === incomingMsg.id)) return c;
+            return {
+              ...c,
+              lastMessage: incomingMsg.text,
+              lastMessageTime: incomingMsg.timestamp,
+              messages: [...c.messages, incomingMsg]
+            };
+          }
+          return c;
+        })
+      );
+    };
+
+    // 2a. Direct broadcast event
+    channel.on('broadcast', { event: 'new_message' }, ({ payload }) => {
+      if (payload) handleIncoming(payload);
+    });
+
+    // 2b. Postgres changes fallback (always delivers even across network/NAT boundaries)
+    channel.on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'comments',
+        filter: `post_id=eq.${SENGON_SHARED_POST_ID}`
+      },
+      (payload) => {
+        try {
+          const row = payload.new as any;
+          if (!row || !row.content) return;
+          const parsed = JSON.parse(row.content);
+          if (parsed._sengon_chat && parsed.roomId === activeConvId) {
+            handleIncoming(parsed);
+          }
+        } catch (e) {
+          // not chat json
+        }
+      }
+    );
+
+    channel.subscribe((status) => {
+      console.log(`Supabase Realtime Channel [${channelName}] status:`, status);
+    });
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeConvId]);
+  }, [activeConvId, currentUser.id]);
 
   if (!isOpen) return null;
 
@@ -209,23 +309,44 @@ export const WhatsAppChatDrawer: React.FC<WhatsAppChatDrawerProps> = ({ isOpen, 
     const messageText = inputText.trim();
     setInputText('');
 
-    // 2. Broadcast live across the internet via Supabase Realtime to your friend's browser
+    // 2. Transmit via BOTH Supabase Realtime broadcast AND persisted DB notification
+    const SENGON_SHARED_POST_ID = 'bbbbbbbb-0000-0000-0000-000000000002';
+    const SENGON_SENDER_AUTHOR_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+    const payload = {
+      _sengon_chat: true,
+      roomId: activeConvId,
+      msgId: newMsg.id,
+      id: newMsg.id,
+      senderId: currentUser.id,
+      senderName: currentUser.name,
+      senderAvatar: currentUser.avatar,
+      text: messageText,
+      timestamp
+    };
+
+    // 2a. Broadcast to active websocket peers
     try {
       const channelName = `room_${activeConvId.replace(/[^a-zA-Z0-9_]/g, '_')}`;
-      await supabase.channel(channelName).send({
+      supabase.channel(channelName).send({
         type: 'broadcast',
         event: 'new_message',
-        payload: {
-          id: newMsg.id,
-          senderId: currentUser.id,
-          senderName: currentUser.name,
-          senderAvatar: currentUser.avatar,
-          text: messageText,
-          timestamp
-        }
+        payload
+      }).catch((e) => console.warn('Broadcast send:', e));
+    } catch (err) {
+      console.warn('Realtime broadcast error:', err);
+    }
+
+    // 2b. Database write for guaranteed delivery & history persistence
+    try {
+      await supabase.from('comments').insert({
+        post_id: SENGON_SHARED_POST_ID,
+        author_id: SENGON_SENDER_AUTHOR_ID,
+        content: JSON.stringify(payload),
+        likes_count: 0
       });
     } catch (err) {
-      console.error('Realtime broadcast error:', err);
+      console.error('Error persisting message:', err);
     }
   };
 

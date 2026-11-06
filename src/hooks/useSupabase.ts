@@ -133,6 +133,7 @@ export function useComments(postId: string) {
       .from('comments')
       .select('*, profiles(*)')
       .eq('post_id', postId)
+      .not('content', 'ilike', '{"_sengon_chat":%')
       .order('created_at', { ascending: true });
 
     if (error) {
