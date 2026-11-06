@@ -131,7 +131,11 @@ function MainApp() {
 
   // Modals & Panels
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isMessengerOpen, setIsMessengerOpen] = useState(false);
+  const [isMessengerOpen, setIsMessengerOpen] = useState(() => {
+    // Automatically open the chat drawer if someone clicks an invite link containing ?room=
+    const params = new URLSearchParams(window.location.search);
+    return params.has('room');
+  });
   const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 

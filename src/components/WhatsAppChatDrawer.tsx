@@ -112,14 +112,18 @@ export const WhatsAppChatDrawer: React.FC<WhatsAppChatDrawerProps> = ({ isOpen, 
   useEffect(() => {
     if (!activeConvId) return;
 
-    const channel = supabase.channel(`chat_${activeConvId}`, {
+    // Use a shared channel reference so broadcast works reliably across peers
+    const channelName = `room_${activeConvId.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+    const channel = supabase.channel(channelName, {
       config: { broadcast: { self: false } }
     });
 
     channel
       .on('broadcast', { event: 'new_message' }, ({ payload }) => {
+        if (!payload || !payload.text) return;
+
         const incomingMsg: DirectMessage = {
-          id: payload.id || `msg-${Date.now()}`,
+          id: payload.id || `msg-${Date.now()}-${Math.random()}`,
           senderId: payload.senderId,
           senderName: payload.senderName,
           senderAvatar: payload.senderAvatar,
@@ -143,7 +147,9 @@ export const WhatsAppChatDrawer: React.FC<WhatsAppChatDrawerProps> = ({ isOpen, 
           })
         );
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log(`Supabase Realtime Channel [${channelName}] status:`, status);
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -205,7 +211,8 @@ export const WhatsAppChatDrawer: React.FC<WhatsAppChatDrawerProps> = ({ isOpen, 
 
     // 2. Broadcast live across the internet via Supabase Realtime to your friend's browser
     try {
-      await supabase.channel(`chat_${activeConvId}`).send({
+      const channelName = `room_${activeConvId.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+      await supabase.channel(channelName).send({
         type: 'broadcast',
         event: 'new_message',
         payload: {
